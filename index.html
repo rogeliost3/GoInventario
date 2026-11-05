@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="Inventario local de equipos informáticos mediante códigos de barras Code 128.">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <title>Inventario</title>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="device-buttons" role="group" aria-label="Tipo de dispositivo">
+        <button class="device active" data-device="PC">PC</button>
+        <button class="device" data-device="PTT">PTT</button>
+        <button class="device" data-device="MON">MON</button>
+        <button class="device" data-device="IMP">IMP</button>
+        <button class="device" data-device="MF">MF</button>
+        <button id="cameraSession" class="camera-button" aria-label="Iniciar o cerrar sesión de escaneo" title="Iniciar/cerrar sesión">📷</button>
+      </div>
+    </header>
+
+    <section class="user-row">
+      <label for="userName">Usuario</label>
+      <input id="userName" type="text" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Nombre del usuario">
+    </section>
+
+    <section id="sessionInfo" class="session-info hidden">
+      <span>Departamento:</span>
+      <strong id="departmentLabel"></strong>
+      <span class="status-dot" aria-hidden="true"></span>
+      <span id="scanStatus">Sesión activa</span>
+    </section>
+
+    <section id="cameraArea" class="camera-area hidden">
+      <div id="cameraFrame" class="camera-frame">
+        <video id="video" playsinline muted></video>
+        <div class="scan-guide" aria-hidden="true"></div>
+        <div id="scanFlash" class="scan-flash"></div>
+        <div id="cameraMessage" class="camera-message">Apunta al código Code 128</div>
+      </div>
+      <button id="scanButton" class="scan-button" aria-label="Leer código de barras">●</button>
+    </section>
+
+    <section class="reading-section">
+      <div class="section-title">
+        <h2>Lecturas realizadas</h2>
+        <span id="countBadge">0</span>
+      </div>
+      <div class="table-wrap">
+        <table id="readingTable">
+          <thead>
+            <tr>
+              <th>Departamento</th>
+              <th>Tipo</th>
+              <th>Etiqueta</th>
+              <th>Usuario</th>
+            </tr>
+          </thead>
+          <tbody id="readingBody"></tbody>
+        </table>
+      </div>
+      <p id="emptyMessage" class="empty-message">Todavía no hay lecturas en esta sesión.</p>
+    </section>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </main>
+
+  <dialog id="departmentDialog">
+    <form method="dialog" id="departmentForm" class="dialog-card">
+      <h2>Nuevo departamento</h2>
+      <p>Indica el departamento de los equipos que vas a escanear.</p>
+      <input id="departmentInput" type="text" autocomplete="off" spellcheck="false" placeholder="Departamento" required>
+      <div class="dialog-actions">
+        <button value="cancel" class="secondary">Cancelar</button>
+        <button id="departmentAccept" value="default" class="primary">Aceptar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="folderDialog">
+    <div class="dialog-card">
+      <h2>Carpeta de inventarios</h2>
+      <p>La primera vez debes elegir la carpeta donde se guardarán los archivos INVENTARIO-yymmdd.xlsx. En Android puedes seleccionar <strong>Documents</strong> o una carpeta equivalente.</p>
+      <button id="chooseFolder" class="primary full">Elegir carpeta</button>
+    </div>
+  </dialog>
+
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
