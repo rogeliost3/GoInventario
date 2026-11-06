@@ -4,7 +4,8 @@ const APP_VERSION = '1.0.0';
 const DB_NAME = 'InventarioEquiposDB';
 const DB_VERSION = 1;
 const STORE = 'config';
-const XLSX_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+// const XLSX_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+const XLSX_URL = './lib/xlsx.full.min.js';
 
 const state = {
   dispositivo: 'PC',
@@ -14,7 +15,7 @@ const state = {
   fileHandle: null,
   rows: [],
   scanning: false,
-  detector: null,
+  codeReader: null,
   stream: null,
   audioCtx: null,
   busy: false
@@ -101,7 +102,7 @@ async function ensureFolder() {
         state.dirHandle = handle;
         return handle;
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   folderDialog.showModal();
@@ -216,7 +217,7 @@ function playTone(kind) {
       gain.gain.setValueAtTime(.08, now); gain.gain.exponentialRampToValueAtTime(.001, now + .18);
       osc.connect(gain).connect(ctx.destination); osc.start(now); osc.stop(now + .19);
     }
-  } catch (_) {}
+  } catch (_) { }
 }
 
 function flash(kind) {
@@ -227,23 +228,43 @@ function flash(kind) {
 }
 
 async function startCamera() {
-  if (!navigator.mediaDevices?.getUserMedia) throw new Error('El navegador no permite acceder a la cámara en este contexto.');
-  state.stream = await navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
-  });
-  video.srcObject = state.stream;
-  await video.play();
 
-  if ('BarcodeDetector' in window) {
-    const formats = await BarcodeDetector.getSupportedFormats();
-    if (formats.includes('code_128')) {
-      state.detector = new BarcodeDetector({ formats: ['code_128'] });
-      $('cameraMessage').textContent = 'Code 128 listo';
-      return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('El navegador no permite acceder a la cámara.');
     }
-  }
-  throw new Error('Chrome no ofrece detección Code 128 en este dispositivo. Actualiza Chrome y Google Play Services.');
+
+    // Configuración exclusiva para Code 128
+    const hints = new Map();
+
+    hints.set(
+        ZXing.DecodeHintType.POSSIBLE_FORMATS,
+        [ZXing.BarcodeFormat.CODE_128]
+    );
+
+    hints.set(
+        ZXing.DecodeHintType.TRY_HARDER,
+        true
+    );
+
+    // Inicializar lector ZXing
+    state.codeReader =
+        new ZXingBrowser.BrowserMultiFormatReader(hints, 500);
+
+    // Obtener cámara trasera
+    state.stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+        }
+    });
+
+    video.srcObject = state.stream;
+
+    await video.play();
+
+    $('cameraMessage').textContent = 'Code 128 listo';
 }
 
 function stopCamera() {
@@ -256,56 +277,115 @@ function stopCamera() {
 }
 
 async function detectBarcode() {
-  if (!state.detector || video.readyState < 2) return null;
-  try {
-    const results = await state.detector.detect(video);
-    const hit = results.find(r => r.rawValue);
-    return hit?.rawValue?.trim() || null;
-  } catch (_) {
-    return null;
-  }
+
+    if (!state.codeReader || video.readyState < 2) {
+        return null;
+    }
+
+    let bitmap = null;
+
+    try {
+
+        // Capturar el fotograma actual
+        bitmap = await createImageBitmap(video);
+
+        // Decodificar exclusivamente Code 128
+        const result = await state.codeReader.decodeBitmap(bitmap);
+
+        return result.getText().trim() || null;
+
+    } catch (err) {
+
+        // No se encontró ningún código válido
+        return null;
+
+    } finally {
+
+        if (bitmap) {
+            bitmap.close();
+        }
+    }
 }
 
 async function scanOnce() {
-  if (!state.sessionActive || state.busy) return;
-  state.busy = true;
-  $('scanButton').disabled = true;
-  const value = await detectBarcode();
-  if (!value) {
-    playTone('error');
-    flash('error');
-    showToast('No se pudo leer el código Code 128.', true);
-    state.busy = false;
-    $('scanButton').disabled = false;
-    return;
-  }
 
-  const row = {
-    departamento: state.departamento,
-    tipo: state.dispositivo,
-    etiqueta: value,
-    usuario: userName.value.trim()
-  };
+    if (!state.sessionActive || state.busy) return;
 
-  try {
-    state.rows.push(row);
-    const wb = rowsToWorkbook(state.rows);
-    await writeWorkbook(wb);
-    await saveConfig('lastRows', state.rows);
-    renderRows();
-    playTone('success');
-    flash('success');
-    showToast(`Lectura correcta: ${value}`);
-  } catch (err) {
-    state.rows.pop();
-    renderRows();
-    playTone('error');
-    flash('error');
-    showToast(`No se pudo guardar: ${err.message}`, true);
-  } finally {
-    state.busy = false;
-    $('scanButton').disabled = false;
-  }
+    state.busy = true;
+    state.scanning = true;
+
+    $('scanButton').disabled = true;
+
+    try {
+
+        const value = await detectBarcode();
+
+        // Lectura incorrecta
+        if (!value) {
+
+            playTone('error');
+            flash('error');
+
+            showToast(
+                'No se pudo leer el código Code 128.',
+                true
+            );
+
+            return;
+        }
+
+        // Preparar registro
+        const row = {
+            departamento: state.departamento,
+            tipo: state.dispositivo,
+            etiqueta: value,
+            usuario: userName.value.trim()
+        };
+
+        try {
+
+            // Añadir registro
+            state.rows.push(row);
+
+            // Generar XLSX
+            const wb = rowsToWorkbook(state.rows);
+
+            // Escribir archivo
+            await writeWorkbook(wb);
+
+            // Protección IndexedDB
+            await saveConfig('lastRows', state.rows);
+
+            // Actualizar interfaz
+            renderRows();
+
+            playTone('success');
+            flash('success');
+
+            showToast(`Lectura correcta: ${value}`);
+
+        } catch (err) {
+
+            state.rows.pop();
+
+            renderRows();
+
+            playTone('error');
+            flash('error');
+
+            showToast(
+                `No se pudo guardar: ${err.message}`,
+                true
+            );
+        }
+
+    } finally {
+
+        state.busy = false;
+        state.scanning = false;
+
+        $('scanButton').disabled = false;
+    }
 }
 
 async function startSession() {
@@ -353,6 +433,21 @@ function endSession() {
   showToast('Sesión cerrada. Los datos ya están guardados.');
 }
 
+function ensureLibrariesLoaded() {
+
+    if (!window.XLSX) {
+        throw new Error('No se ha cargado XLSX.');
+    }
+
+    if (!window.ZXing) {
+        throw new Error('No se ha cargado ZXing Library.');
+    }
+
+    if (!window.ZXingBrowser) {
+        throw new Error('No se ha cargado ZXing Browser.');
+    }
+}
+
 $('cameraSession').addEventListener('click', async () => {
   if (state.sessionActive) endSession();
   else await startSession();
@@ -367,11 +462,30 @@ if ('serviceWorker' in navigator) {
 }
 
 (async function init() {
-  setDevice('PC');
-  userName.value = await loadConfig('lastUser') || '';
-  userName.addEventListener('input', () => saveConfig('lastUser', userName.value).catch(() => {}));
-  renderRows();
-  if (!window.isSecureContext && location.hostname !== 'localhost') {
-    showToast('La cámara requiere HTTPS. Instala/abre la PWA desde HTTPS.', true);
-  }
+
+    try {
+        ensureLibrariesLoaded();
+    } catch (err) {
+        showToast(err.message, true);
+        return;
+    }
+
+    setDevice('PC');
+
+    userName.value = await loadConfig('lastUser') || '';
+
+    userName.addEventListener(
+        'input',
+        () => saveConfig('lastUser', userName.value).catch(() => {})
+    );
+
+    renderRows();
+
+    if (!window.isSecureContext && location.hostname !== 'localhost') {
+        showToast(
+            'La cámara requiere HTTPS. Instala/abre la PWA desde HTTPS.',
+            true
+        );
+    }
+
 })();

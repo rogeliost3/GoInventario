@@ -1,7 +1,15 @@
 const CACHE = 'inventario-v1';
 const APP_ASSETS = [
-  './', './index.html', './style.css', './app.js', './manifest.json', './icon.svg',
-  'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'
+  './', 
+  './index.html', 
+  './style.css', 
+  './app.js', 
+  './manifest.json', 
+  './icon.svg', 
+  './lib/xlsx.full.min.js',
+  './lib/zxing-library.min.js',
+  './lib/zxing-browser.min.js'
+  // 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'
 ];
 
 self.addEventListener('install', event => {

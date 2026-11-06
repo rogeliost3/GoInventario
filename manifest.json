@@ -1,7 +1,7 @@
 {
   "name": "Inventario de Equipos",
   "short_name": "Inventario",
-  "description": "Inventario local de equipos informáticos mediante códigos Code 128.",
+  "description": "Inventario local de equipos informáticos mediante barcodes Code 128.",
   "lang": "es-ES",
   "start_url": "./",
   "scope": "./",
