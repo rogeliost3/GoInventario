@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.0.1';
 const DB_NAME = 'InventarioEquiposDB';
 const DB_VERSION = 1;
 const STORE = 'config';
@@ -228,164 +228,203 @@ function flash(kind) {
 }
 
 async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error(
+      'El navegador no permite acceder a la cámara en este contexto.'
+    );
+  }
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('El navegador no permite acceder a la cámara.');
+  if (!window.ZXingBrowser) {
+    throw new Error(
+      'No se ha cargado zxing-browser.min.js.'
+    );
+  }
+
+  if (!window.ZXing) {
+    throw new Error(
+      'No se ha cargado zxing-library.min.js.'
+    );
+  }
+
+  // Crear lector ZXing.
+  // En la versión de zxing-browser que tienes,
+  // el segundo parámetro es timeBetweenScansMillis.
+  state.codeReader =
+    new ZXingBrowser.BrowserMultiFormatReader(null, 500);
+
+  // Restringir el lector exclusivamente a Code 128.
+  //
+  // Esta propiedad existe específicamente en
+  // BrowserMultiFormatReader de tu zxing-browser.min.js.
+  state.codeReader.possibleFormats = [
+    ZXingBrowser.BarcodeFormat.CODE_128
+  ];
+
+  // Obtener cámara trasera.
+  state.stream = await navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: 1280 },
+      height: { ideal: 720 }
     }
+  });
 
-    // Configuración exclusiva para Code 128
-    const hints = new Map();
+  // Mostrar la cámara en el elemento <video>.
+  video.srcObject = state.stream;
 
-    hints.set(
-        ZXing.DecodeHintType.POSSIBLE_FORMATS,
-        [ZXing.BarcodeFormat.CODE_128]
-    );
+  await video.play();
 
-    hints.set(
-        ZXing.DecodeHintType.TRY_HARDER,
-        true
-    );
-
-    // Inicializar lector ZXing
-    state.codeReader =
-        new ZXingBrowser.BrowserMultiFormatReader(hints, 500);
-
-    // Obtener cámara trasera
-    state.stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-        }
-    });
-
-    video.srcObject = state.stream;
-
-    await video.play();
-
-    $('cameraMessage').textContent = 'Code 128 listo';
+  $('cameraMessage').textContent = 'Code 128 listo';
 }
 
 function stopCamera() {
-  if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+  if (state.codeReader) {
+    try {
+      state.codeReader.reset();
+    } catch (_) {}
+  }
+
+  if (state.stream) {
+    state.stream.getTracks().forEach(track => track.stop());
+  }
+
   state.stream = null;
   video.srcObject = null;
-  state.detector = null;
+  state.codeReader = null;
+
   state.scanning = false;
+
   $('scanButton').disabled = false;
 }
 
 async function detectBarcode() {
+  if (!state.codeReader || video.readyState < 2) {
+    return null;
+  }
 
-    if (!state.codeReader || video.readyState < 2) {
-        return null;
-    }
+  if (!video.videoWidth || !video.videoHeight) {
+    return null;
+  }
 
-    let bitmap = null;
+  // Crear un canvas con las dimensiones reales del vídeo.
+  const canvas = document.createElement('canvas');
 
-    try {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
 
-        // Capturar el fotograma actual
-        bitmap = await createImageBitmap(video);
+  const context = canvas.getContext('2d', {
+    willReadFrequently: true
+  });
 
-        // Decodificar exclusivamente Code 128
-        const result = await state.codeReader.decodeBitmap(bitmap);
+  if (!context) {
+    return null;
+  }
 
-        return result.getText().trim() || null;
+  // Capturar exactamente el fotograma actual.
+  context.drawImage(
+    video,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
 
-    } catch (err) {
+  try {
+    // ZXing crea internamente el BinaryBitmap a partir
+    // del canvas y realiza la decodificación.
+    const result = state.codeReader.decodeFromCanvas(canvas);
 
-        // No se encontró ningún código válido
-        return null;
+    const value =
+      result?.getText?.() ??
+      result?.text ??
+      '';
 
-    } finally {
+    return String(value).trim() || null;
 
-        if (bitmap) {
-            bitmap.close();
-        }
-    }
+  } catch (err) {
+    // No se encontró un Code 128 válido en este fotograma.
+    return null;
+  }
 }
 
 async function scanOnce() {
+  if (!state.sessionActive || state.busy) {
+    return;
+  }
 
-    if (!state.sessionActive || state.busy) return;
+  state.busy = true;
+  state.scanning = true;
 
-    state.busy = true;
-    state.scanning = true;
+  $('scanButton').disabled = true;
 
-    $('scanButton').disabled = true;
+  try {
+    const value = await detectBarcode();
+
+    // Lectura incorrecta.
+    if (!value) {
+      playTone('error');
+      flash('error');
+
+      showToast(
+        'No se pudo leer el código Code 128.',
+        true
+      );
+
+      return;
+    }
+
+    const row = {
+      departamento: state.departamento,
+      tipo: state.dispositivo,
+      etiqueta: value,
+      usuario: userName.value.trim()
+    };
 
     try {
+      // Añadir inmediatamente el registro.
+      state.rows.push(row);
 
-        const value = await detectBarcode();
+      // Generar XLSX.
+      const wb = rowsToWorkbook(state.rows);
 
-        // Lectura incorrecta
-        if (!value) {
+      // Escribir el archivo.
+      await writeWorkbook(wb);
 
-            playTone('error');
-            flash('error');
+      // Guardar copia de seguridad en IndexedDB.
+      await saveConfig('lastRows', state.rows);
 
-            showToast(
-                'No se pudo leer el código Code 128.',
-                true
-            );
+      // Actualizar interfaz.
+      renderRows();
 
-            return;
-        }
+      // Confirmación visual y acústica.
+      playTone('success');
+      flash('success');
 
-        // Preparar registro
-        const row = {
-            departamento: state.departamento,
-            tipo: state.dispositivo,
-            etiqueta: value,
-            usuario: userName.value.trim()
-        };
+      showToast(`Lectura correcta: ${value}`);
 
-        try {
+    } catch (err) {
+      // Si falla el guardado, eliminar el registro
+      // que acabábamos de añadir.
+      state.rows.pop();
 
-            // Añadir registro
-            state.rows.push(row);
+      renderRows();
 
-            // Generar XLSX
-            const wb = rowsToWorkbook(state.rows);
+      playTone('error');
+      flash('error');
 
-            // Escribir archivo
-            await writeWorkbook(wb);
-
-            // Protección IndexedDB
-            await saveConfig('lastRows', state.rows);
-
-            // Actualizar interfaz
-            renderRows();
-
-            playTone('success');
-            flash('success');
-
-            showToast(`Lectura correcta: ${value}`);
-
-        } catch (err) {
-
-            state.rows.pop();
-
-            renderRows();
-
-            playTone('error');
-            flash('error');
-
-            showToast(
-                `No se pudo guardar: ${err.message}`,
-                true
-            );
-        }
-
-    } finally {
-
-        state.busy = false;
-        state.scanning = false;
-
-        $('scanButton').disabled = false;
+      showToast(
+        `No se pudo guardar: ${err.message}`,
+        true
+      );
     }
+
+  } finally {
+    state.busy = false;
+    state.scanning = false;
+
+    $('scanButton').disabled = false;
+  }
 }
 
 async function startSession() {
@@ -434,58 +473,68 @@ function endSession() {
 }
 
 function ensureLibrariesLoaded() {
+  if (!window.XLSX) {
+    throw new Error(
+      'No se ha cargado XLSX. Comprueba ./lib/xlsx.full.min.js'
+    );
+  }
 
-    if (!window.XLSX) {
-        throw new Error('No se ha cargado XLSX.');
-    }
+  if (!window.ZXing) {
+    throw new Error(
+      'No se ha cargado ZXing Library. ' +
+      'Comprueba ./lib/zxing-library.min.js'
+    );
+  }
 
-    if (!window.ZXing) {
-        throw new Error('No se ha cargado ZXing Library.');
-    }
-
-    if (!window.ZXingBrowser) {
-        throw new Error('No se ha cargado ZXing Browser.');
-    }
+  if (!window.ZXingBrowser) {
+    throw new Error(
+      'No se ha cargado ZXing Browser. ' +
+      'Comprueba ./lib/zxing-browser.min.js'
+    );
+  }
 }
 
+//Boton que controla el inicio y el cierre de las sesiones
 $('cameraSession').addEventListener('click', async () => {
   if (state.sessionActive) endSession();
   else await startSession();
 });
+
+//Boton que realiza lectura y guarda el resultado
 $('scanButton').addEventListener('click', scanOnce);
 
+//Cierre de la cámara al abandonar la página
 window.addEventListener('pagehide', () => stopCamera());
 window.addEventListener('beforeunload', () => stopCamera());
 
+//Registro del Service Worker
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(console.error));
 }
 
 (async function init() {
+  try {
+    ensureLibrariesLoaded();
+  } catch (err) {
+    showToast(err.message, true);
+    return;
+  }
 
-    try {
-        ensureLibrariesLoaded();
-    } catch (err) {
-        showToast(err.message, true);
-        return;
-    }
+  setDevice('PC');
 
-    setDevice('PC');
+  userName.value = await loadConfig('lastUser') || '';
 
-    userName.value = await loadConfig('lastUser') || '';
+  userName.addEventListener(
+    'input',
+    () => saveConfig('lastUser', userName.value).catch(() => {})
+  );
 
-    userName.addEventListener(
-        'input',
-        () => saveConfig('lastUser', userName.value).catch(() => {})
+  renderRows();
+
+  if (!window.isSecureContext && location.hostname !== 'localhost') {
+    showToast(
+      'La cámara requiere HTTPS. Instala/abre la PWA desde HTTPS.',
+      true
     );
-
-    renderRows();
-
-    if (!window.isSecureContext && location.hostname !== 'localhost') {
-        showToast(
-            'La cámara requiere HTTPS. Instala/abre la PWA desde HTTPS.',
-            true
-        );
-    }
-
+  }
 })();
