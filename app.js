@@ -249,26 +249,44 @@ async function startCamera() {
   // Crear lector ZXing.
   // En la versión de zxing-browser que tienes,
   // el segundo parámetro es timeBetweenScansMillis.
+  const hints = new Map();
+  hints.set(
+    ZXing.DecodeHintType.POSSIBLE_FORMATS,
+    [ZXing.BarcodeFormat.CODE_128]
+  );
+
   state.codeReader =
-    new ZXingBrowser.BrowserMultiFormatReader(null, 500);
+    new ZXingBrowser.BrowserMultiFormatReader(hints, 500);
 
   // Restringir el lector exclusivamente a Code 128.
   //
   // Esta propiedad existe específicamente en
   // BrowserMultiFormatReader de tu zxing-browser.min.js.
-  state.codeReader.possibleFormats = [
-    ZXingBrowser.BarcodeFormat.CODE_128
-  ];
+  // state.codeReader.possibleFormats = [
+  //   ZXingBrowser.BarcodeFormat.CODE_128
+  // ];
 
   // Obtener cámara trasera.
   state.stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: {
+      deviceId: {
+        exact: "84807f8144c1d9ad6dd6633428ed9c9e5f5e6669467b196cea5f357003060bb1"
+      },
       facingMode: { ideal: 'environment' },
-      width: { ideal: 1280 },
-      height: { ideal: 720 }
+      width: { exact: 1920 },
+      height: { exact: 1080 }
     }
   });
+
+  const track = state.stream.getVideoTracks()[0];
+  console.log(track.getSettings());
+  const caps = track.getCapabilities();
+  console.log(caps);
+
+  if (caps.focusMode?.includes('continuous')) {
+    await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+  }
 
   // Mostrar la cámara en el elemento <video>.
   video.srcObject = state.stream;
@@ -282,7 +300,7 @@ function stopCamera() {
   if (state.codeReader) {
     try {
       state.codeReader.reset();
-    } catch (_) {}
+    } catch (_) { }
   }
 
   if (state.stream) {
@@ -307,43 +325,58 @@ async function detectBarcode() {
     return null;
   }
 
-  // Crear un canvas con las dimensiones reales del vídeo.
+  const w = video.videoWidth;
+  const h = video.videoHeight;
+
+  // Zona de la guía de escaneo (.scan-guide): left/right 8%, top 39%, alto 22%
+  const sx = Math.round(w * 0.08);
+  const sw = Math.round(w * 0.84);
+  const sy = Math.round(h * 0.30);
+  const sh = Math.round(h * 0.40);
+
   const canvas = document.createElement('canvas');
+  canvas.width = sw;
+  canvas.height = sh;
 
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-
-  const context = canvas.getContext('2d', {
-    willReadFrequently: true
-  });
-
+  const context = canvas.getContext('2d', { willReadFrequently: true });
   if (!context) {
     return null;
   }
 
-  // Capturar exactamente el fotograma actual.
-  context.drawImage(
-    video,
-    0,
-    0,
-    canvas.width,
-    canvas.height
-  );
+  // Ahora sí: el contexto ya existe
+  context.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+
+  //TEMP:
+  canvas.style.cssText = 'position:fixed;top:60px;left:0;width:100%;z-index:999;border:3px solid red;background:#000';
+  document.body.appendChild(canvas);
+  setTimeout(() => canvas.remove(), 3000);
+  //TEMP
 
   try {
-    // ZXing crea internamente el BinaryBitmap a partir
-    // del canvas y realiza la decodificación.
-    const result = state.codeReader.decodeFromCanvas(canvas);
+    const hints = new Map();
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+      ZXing.BarcodeFormat.CODE_128,
+      ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.CODE_93,
+      ZXing.BarcodeFormat.EAN_13,
+      ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.ITF,
+      ZXing.BarcodeFormat.QR_CODE,
+      ZXing.BarcodeFormat.DATA_MATRIX
+    ]);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
 
-    const value =
-      result?.getText?.() ??
-      result?.text ??
-      '';
+    const luminance = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+    const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminance));
 
-    return String(value).trim() || null;
+    const reader = new ZXing.MultiFormatReader();
+    reader.setHints(hints);
 
+    const result = reader.decode(bitmap);
+    console.log('Formato detectado:', result.getBarcodeFormat());
+    return result.getText().trim() || null;
   } catch (err) {
-    // No se encontró un Code 128 válido en este fotograma.
+    console.log('ZXing:', err.name, err.message);
     return null;
   }
 }
@@ -458,8 +491,15 @@ async function startSession() {
     $('cameraSession').classList.add('active');
     showToast(`Sesión iniciada: ${result}`);
   } catch (err) {
+    console.error('ERROR AL INICIAR SESIÓN:', err);
+    console.error('STACK:', err.stack);
+
     stopCamera();
-    showToast(err.message || 'No se pudo iniciar la sesión.', true);
+
+    showToast(
+      `${err.name}: ${err.message}`,
+      true
+    );
   }
 }
 
@@ -526,7 +566,7 @@ if ('serviceWorker' in navigator) {
 
   userName.addEventListener(
     'input',
-    () => saveConfig('lastUser', userName.value).catch(() => {})
+    () => saveConfig('lastUser', userName.value).catch(() => { })
   );
 
   renderRows();
