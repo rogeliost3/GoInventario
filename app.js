@@ -1,10 +1,12 @@
 'use strict';
+DEBUG = true;
 
 const APP_VERSION = '1.0.1';
 const DB_NAME = 'InventarioEquiposDB';
 const DB_VERSION = 1;
 const STORE = 'config';
 const XLSX_URL = './lib/xlsx.full.min.js';
+const WASM_URL = './lib/zxing_reader.wasm';
 
 const state = {
   dispositivo: 'PC',
@@ -14,7 +16,7 @@ const state = {
   fileHandle: null,
   rows: [],
   scanning: false,
-  codeReader: null,
+  detector: null,
   stream: null,
   audioCtx: null,
   busy: false
@@ -34,6 +36,38 @@ const toast = $('toast');
 const departmentDialog = $('departmentDialog');
 const departmentInput = $('departmentInput');
 const folderDialog = $('folderDialog');
+
+async function createDetector() {
+  // 1) Nativo (Chrome en Android)
+  if ('BarcodeDetector' in window) {
+    try {
+      const formats = await BarcodeDetector.getSupportedFormats();
+      if (formats.includes('code_128')) {
+        console.log('BarcodeDetector nativo');
+        return new BarcodeDetector({ formats: ['code_128'] });
+      }
+    } catch (_) { /* cae al polyfill */ }
+  }
+
+  // 2) Polyfill con el .wasm local
+  const api = window.BarcodeDetectionAPI;
+  if (!api) throw new Error('No se ha cargado ./lib/barcode-detector.iife.js');
+  
+  const overrides = {
+    locateFile: (path, prefix) => path.endsWith('.wasm') ? WASM_URL : prefix + path
+  };
+  
+  if (api.setZXingModuleOverrides) {
+    api.setZXingModuleOverrides(overrides);
+    } else if (api.prepareZXingModule) {
+      api.prepareZXingModule({ overrides, fireImmediately: false });
+    } else {
+      console.warn('Esta versión no permite cambiar la ruta del .wasm; se descargará del CDN.');
+  }
+
+  console.log('BarcodeDetector polyfill (zxing-wasm)');
+  return new api.BarcodeDetector({ formats: ['code_128'] });
+}
 
 function todayFileName() {
   const d = new Date();
@@ -227,37 +261,15 @@ function flash(kind) {
 }
 
 async function startCamera() {
-  console.log("Iniciando camara: v1.0.1");
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('El navegador no permite acceder a la cámara en este contexto.');
   }
 
-  if (!window.ZXing) {
-    throw new Error('No se ha cargado zxing-library.min.js.');
-  }
+  state.detector = await createDetector();
 
-  // Lector ZXing restringido a Code 128.
-  const hints = new Map();
-  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.CODE_128]);
-  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-
-  const reader = new ZXing.MultiFormatReader();
-  reader.setHints(hints);
-  state.codeReader = reader;
-
-  // Cámara trasera del móvil, sin deviceId.
-  state.stream = await navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: {
-      facingMode: { ideal: 'environment' },
-      width: { ideal: 1920 },
-      height: { ideal: 1080 }
-    }
-  });
-
+  state.stream = await openCameraStream();   // la función con reintentos que te di antes
   const track = state.stream.getVideoTracks()[0];
 
-  // Enfoque continuo si la cámara lo soporta (no debe romper el arranque).
   try {
     const caps = track.getCapabilities?.() ?? {};
     if (caps.focusMode?.includes('continuous')) {
@@ -272,6 +284,53 @@ async function startCamera() {
 
   $('cameraMessage').textContent = 'Code 128 listo';
 }
+
+// async function startCamera() {
+//   console.log("Iniciando camara: v1.0.1");
+//   if (!navigator.mediaDevices?.getUserMedia) {
+//     throw new Error('El navegador no permite acceder a la cámara en este contexto.');
+//   }
+
+//   if (!window.ZXing) {
+//     throw new Error('No se ha cargado zxing-library.min.js.');
+//   }
+
+//   // Lector ZXing restringido a Code 128.
+//   const hints = new Map();
+//   hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.CODE_128]);
+//   hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+//   const reader = new ZXing.MultiFormatReader();
+//   reader.setHints(hints);
+//   state.codeReader = reader;
+
+//   // Cámara trasera del móvil, sin deviceId.
+//   state.stream = await navigator.mediaDevices.getUserMedia({
+//     audio: false,
+//     video: {
+//       facingMode: { ideal: 'environment' },
+//       width: { ideal: 1920 },
+//       height: { ideal: 1080 }
+//     }
+//   });
+
+//   const track = state.stream.getVideoTracks()[0];
+
+//   // Enfoque continuo si la cámara lo soporta (no debe romper el arranque).
+//   try {
+//     const caps = track.getCapabilities?.() ?? {};
+//     if (caps.focusMode?.includes('continuous')) {
+//       await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+//     }
+//   } catch (err) {
+//     console.warn('No se pudo aplicar el enfoque continuo:', err);
+//   }
+
+//   video.srcObject = state.stream;
+//   await video.play();
+
+//   $('cameraMessage').textContent = 'Code 128 listo';
+// }
 
 // function stopCamera() {
 //   if (state.codeReader) {
@@ -293,11 +352,20 @@ async function startCamera() {
 //   $('scanButton').disabled = false;
 // }
 
+// function stopCamera() {
+//   state.stream?.getTracks().forEach(track => track.stop());
+//   state.stream = null;
+//   video.srcObject = null;
+//   state.codeReader = null;
+//   state.scanning = false;
+//   $('scanButton').disabled = false;
+// }
+
 function stopCamera() {
   state.stream?.getTracks().forEach(track => track.stop());
   state.stream = null;
   video.srcObject = null;
-  state.codeReader = null;
+  state.detector = null;
   state.scanning = false;
   $('scanButton').disabled = false;
 }
@@ -318,86 +386,111 @@ function showDebugImage(canvas) {
   img.src = canvas.toDataURL('image/png');
 }
 
-
 async function detectBarcode() {
-  if (!state.codeReader || video.readyState < 2) {
-    console.log("No pasa de detectBarcode: primera comprobacion");
-    return null;
-  }
-
-  if (!video.videoWidth || !video.videoHeight) {
-    console.log("no pasa de detectBarcode: segunda comprobacion");
-    return null;
-  }
+  if (!state.detector || video.readyState < 2 || !video.videoWidth) return null;
 
   const w = video.videoWidth;
   const h = video.videoHeight;
 
-  console.log("w, h:", w, h);
-  // Zona de la guía de escaneo (.scan-guide): left/right 8%, top 30%, alto 40%
-  const sx = Math.round(w * 0.08);
-  const sw = Math.round(w * 0.84);
-  const sy = Math.round(h * 0.39);
-  const sh = Math.round(h * 0.20);
+  // Zona central, con margen respecto a la guía visual
+  const sx = Math.round(w * 0.05), sw = Math.round(w * 0.90);
+  const sy = Math.round(h * 0.25), sh = Math.round(h * 0.50);
 
   const canvas = document.createElement('canvas');
-  if (!canvas) {
-    return null;
-  }
-  console.log("Tenemos canvas");
   canvas.width = sw;
   canvas.height = sh;
-  console.log("sx, sy, sw, sh:", sx, sy, sw, sh);
+  canvas.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
 
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) {
-    return null;
-  }
-  console.log("Tenemos context");
-  // Ahora sí: el contexto ya existe
-  context.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+  if (DEBUG) showDebugImage(canvas);
 
-  // --- DEPURACIÓN: mostrar la imagen que se decodifica ---
-  showDebugImage(canvas);
-
-  // try {
-  //   const luminance = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-  //   const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminance));
-  //   const result = state.codeReader.decode(bitmap);
-  //   console.log('Formato detectado:', result.getBarcodeFormat());
-  //   return result.getText().trim() || null;
-  // } catch (err) {
-  //   console.log('ZXing:', err.name, err.message);
-  //   return null;
-  // }
   try {
-    const hints = new Map();
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-      ZXing.BarcodeFormat.CODE_128,
-      ZXing.BarcodeFormat.CODE_39,
-      ZXing.BarcodeFormat.CODE_93,
-      ZXing.BarcodeFormat.EAN_13,
-      ZXing.BarcodeFormat.EAN_8,
-      ZXing.BarcodeFormat.ITF,
-      ZXing.BarcodeFormat.QR_CODE,
-      ZXing.BarcodeFormat.DATA_MATRIX
-    ]);
-    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-
-    const luminance = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-    const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminance));
-
-    const reader = new ZXing.MultiFormatReader();
-    reader.setHints(hints);
-
-    const result = reader.decode(bitmap);
-    console.log('Formato detectado:', result.getBarcodeFormat());
-    return result.getText().trim() || null;
+    const codes = await state.detector.detect(canvas);
+    return codes[0]?.rawValue?.trim() || null;
   } catch (err) {
-    console.log('ZXing:', err.name, err.message);
+    console.warn('BarcodeDetector:', err.name, err.message);
     return null;
   }
 }
+
+// async function detectBarcode() {
+//   if (!state.codeReader || video.readyState < 2) {
+//     console.log("No pasa de detectBarcode: primera comprobacion");
+//     return null;
+//   }
+
+//   if (!video.videoWidth || !video.videoHeight) {
+//     console.log("no pasa de detectBarcode: segunda comprobacion");
+//     return null;
+//   }
+
+//   const w = video.videoWidth;
+//   const h = video.videoHeight;
+
+//   console.log("w, h:", w, h);
+//   // Zona de la guía de escaneo (.scan-guide): left/right 8%, top 30%, alto 40%
+//   const sx = Math.round(w * 0.08);
+//   const sw = Math.round(w * 0.84);
+//   const sy = Math.round(h * 0.39);
+//   const sh = Math.round(h * 0.20);
+
+//   const canvas = document.createElement('canvas');
+//   if (!canvas) {
+//     return null;
+//   }
+//   console.log("Tenemos canvas");
+//   canvas.width = sw;
+//   canvas.height = sh;
+//   console.log("sx, sy, sw, sh:", sx, sy, sw, sh);
+
+//   const context = canvas.getContext('2d', { willReadFrequently: true });
+//   if (!context) {
+//     return null;
+//   }
+//   console.log("Tenemos context");
+//   // Ahora sí: el contexto ya existe
+//   context.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+
+//   // --- DEPURACIÓN: mostrar la imagen que se decodifica ---
+//   showDebugImage(canvas);
+
+//   // try {
+//   //   const luminance = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+//   //   const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminance));
+//   //   const result = state.codeReader.decode(bitmap);
+//   //   console.log('Formato detectado:', result.getBarcodeFormat());
+//   //   return result.getText().trim() || null;
+//   // } catch (err) {
+//   //   console.log('ZXing:', err.name, err.message);
+//   //   return null;
+//   // }
+//   try {
+//     const hints = new Map();
+//     hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+//       ZXing.BarcodeFormat.CODE_128,
+//       ZXing.BarcodeFormat.CODE_39,
+//       ZXing.BarcodeFormat.CODE_93,
+//       ZXing.BarcodeFormat.EAN_13,
+//       ZXing.BarcodeFormat.EAN_8,
+//       ZXing.BarcodeFormat.ITF,
+//       ZXing.BarcodeFormat.QR_CODE,
+//       ZXing.BarcodeFormat.DATA_MATRIX
+//     ]);
+//     hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+//     const luminance = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+//     const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminance));
+
+//     const reader = new ZXing.MultiFormatReader();
+//     reader.setHints(hints);
+
+//     const result = reader.decode(bitmap);
+//     console.log('Formato detectado:', result.getBarcodeFormat());
+//     return result.getText().trim() || null;
+//   } catch (err) {
+//     console.log('ZXing:', err.name, err.message);
+//     return null;
+//   }
+// }
 
 async function scanOnce() {
   if (!state.sessionActive || state.busy) {
@@ -532,25 +625,34 @@ function endSession() {
 
 function ensureLibrariesLoaded() {
   if (!window.XLSX) {
-    throw new Error(
-      'No se ha cargado XLSX. Comprueba ./lib/xlsx.full.min.js'
-    );
+    throw new Error('No se ha cargado XLSX. Comprueba ./lib/xlsx.full.min.js');
   }
-
-  if (!window.ZXing) {
-    throw new Error(
-      'No se ha cargado ZXing Library. ' +
-      'Comprueba ./lib/zxing-library.min.js'
-    );
-  }
-
-  if (!window.ZXingBrowser) {
-    throw new Error(
-      'No se ha cargado ZXing Browser. ' +
-      'Comprueba ./lib/zxing-browser.min.js'
-    );
+  if (!('BarcodeDetector' in window) && !window.BarcodeDetectionAPI) {
+    throw new Error('No hay BarcodeDetector. Comprueba ./lib/barcode-detector.iife.js');
   }
 }
+
+// function ensureLibrariesLoaded() {
+//   if (!window.XLSX) {
+//     throw new Error(
+//       'No se ha cargado XLSX. Comprueba ./lib/xlsx.full.min.js'
+//     );
+//   }
+
+//   if (!window.ZXing) {
+//     throw new Error(
+//       'No se ha cargado ZXing Library. ' +
+//       'Comprueba ./lib/zxing-library.min.js'
+//     );
+//   }
+
+//   if (!window.ZXingBrowser) {
+//     throw new Error(
+//       'No se ha cargado ZXing Browser. ' +
+//       'Comprueba ./lib/zxing-browser.min.js'
+//     );
+//   }
+// }
 
 //Boton que controla el inicio y el cierre de las sesiones
 $('cameraSession').addEventListener('click', async () => {

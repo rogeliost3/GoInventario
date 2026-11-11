@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@undecaf/barcode-detector-polyfill": "^0.9.23",
+    "barcode-detector": "^2.3.1"
+  }
+}

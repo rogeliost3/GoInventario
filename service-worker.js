@@ -7,8 +7,10 @@ const APP_ASSETS = [
   './manifest.json', 
   './icon.svg', 
   './lib/xlsx.full.min.js',
-  './lib/zxing-library.min.js',
-  './lib/zxing-browser.min.js'
+  './lib/barcode-detector.iife.js',
+  './lib/zxing_reader.wasm'
+  // './lib/zxing-library.min.js',
+  // './lib/zxing-browser.min.js'
   // 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'
 ];
 
