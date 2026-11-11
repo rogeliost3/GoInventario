@@ -1,5 +1,7 @@
 'use strict';
 const DEBUG = true;
+const FORCE_POLYFILL = false;      // ponlo a true para probar el polyfill en el móvil
+const DEBUG_ALL_FORMATS = true;    // temporal: no restringir a code_128
 
 const APP_VERSION = '1.0.2';
 const DB_NAME = 'InventarioEquiposDB';
@@ -20,6 +22,8 @@ const state = {
   rows: [],
   scanning: false,
   detector: null,
+  detectorKind: '',
+  lastDetectError: null,
   stream: null,
   audioCtx: null,
   busy: false
@@ -41,35 +45,38 @@ const departmentInput = $('departmentInput');
 const folderDialog = $('folderDialog');
 
 async function createDetector() {
-  // 1) Nativo (Chrome en Android)
-  if ('BarcodeDetector' in window) {
+  const options = DEBUG_ALL_FORMATS ? {} : { formats: ['code_128'] };
+
+  if (!FORCE_POLYFILL && 'BarcodeDetector' in window) {
     try {
       const formats = await BarcodeDetector.getSupportedFormats();
+      console.log('Formatos nativos:', formats);
       if (formats.includes('code_128')) {
-        console.log('BarcodeDetector nativo');
-        return new BarcodeDetector({ formats: ['code_128'] });
+        state.detectorKind = 'nativo';
+        return new BarcodeDetector(options);
       }
-    } catch (_) { /* cae al polyfill */ }
+    } catch (err) {
+      console.warn('BarcodeDetector nativo no disponible:', err);
+    }
   }
 
   // 2) Polyfill con el .wasm local
   const api = window.BarcodeDetectionAPI;
   if (!api) throw new Error('No se ha cargado ./lib/barcode-detector.iife.js');
-  
+
   const overrides = {
     locateFile: (path, prefix) => path.endsWith('.wasm') ? WASM_URL : prefix + path
   };
-  
+
   if (api.setZXingModuleOverrides) {
     api.setZXingModuleOverrides(overrides);
-    } else if (api.prepareZXingModule) {
-      api.prepareZXingModule({ overrides, fireImmediately: false });
-    } else {
-      console.warn('Esta versión no permite cambiar la ruta del .wasm; se descargará del CDN.');
+  } else if (api.prepareZXingModule) {
+    api.prepareZXingModule({ overrides, fireImmediately: false });
+  } else {
+    console.warn('Esta versión no permite cambiar la ruta del .wasm; se descargará del CDN.');
   }
 
-  console.log('BarcodeDetector polyfill (zxing-wasm)');
-  return new api.BarcodeDetector({ formats: ['code_128'] });
+  return new api.BarcodeDetector(options);
 }
 
 function todayFileName() {
@@ -324,82 +331,6 @@ async function startCamera() {
   $('cameraMessage').textContent = 'Code 128 listo';
 }
 
-// async function startCamera() {
-//   console.log("Iniciando camara: v1.0.1");
-//   if (!navigator.mediaDevices?.getUserMedia) {
-//     throw new Error('El navegador no permite acceder a la cámara en este contexto.');
-//   }
-
-//   if (!window.ZXing) {
-//     throw new Error('No se ha cargado zxing-library.min.js.');
-//   }
-
-//   // Lector ZXing restringido a Code 128.
-//   const hints = new Map();
-//   hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.CODE_128]);
-//   hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-
-//   const reader = new ZXing.MultiFormatReader();
-//   reader.setHints(hints);
-//   state.codeReader = reader;
-
-//   // Cámara trasera del móvil, sin deviceId.
-//   state.stream = await navigator.mediaDevices.getUserMedia({
-//     audio: false,
-//     video: {
-//       facingMode: { ideal: 'environment' },
-//       width: { ideal: 1920 },
-//       height: { ideal: 1080 }
-//     }
-//   });
-
-//   const track = state.stream.getVideoTracks()[0];
-
-//   // Enfoque continuo si la cámara lo soporta (no debe romper el arranque).
-//   try {
-//     const caps = track.getCapabilities?.() ?? {};
-//     if (caps.focusMode?.includes('continuous')) {
-//       await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
-//     }
-//   } catch (err) {
-//     console.warn('No se pudo aplicar el enfoque continuo:', err);
-//   }
-
-//   video.srcObject = state.stream;
-//   await video.play();
-
-//   $('cameraMessage').textContent = 'Code 128 listo';
-// }
-
-// function stopCamera() {
-//   if (state.codeReader) {
-//     try {
-//       state.codeReader.reset();
-//     } catch (_) { }
-//   }
-
-//   if (state.stream) {
-//     state.stream.getTracks().forEach(track => track.stop());
-//   }
-
-//   state.stream = null;
-//   video.srcObject = null;
-//   state.codeReader = null;
-
-//   state.scanning = false;
-
-//   $('scanButton').disabled = false;
-// }
-
-// function stopCamera() {
-//   state.stream?.getTracks().forEach(track => track.stop());
-//   state.stream = null;
-//   video.srcObject = null;
-//   state.codeReader = null;
-//   state.scanning = false;
-//   $('scanButton').disabled = false;
-// }
-
 function stopCamera() {
   state.stream?.getTracks().forEach(track => track.stop());
   state.stream = null;
@@ -426,27 +357,17 @@ function showDebugImage(canvas) {
 }
 
 async function detectBarcode() {
-  if (!state.detector || video.readyState < 2 || !video.videoWidth) {
-    console.log('error state.detector:',state.detector,' video.readyState:', video.readyState);
-    return null;
-  }
+  state.lastDetectError = null;
+  if (!state.detector || video.readyState < 2 || !video.videoWidth) return null;
 
-  const w = video.videoWidth;
-  const h = video.videoHeight;
-
-  // Tamaño del marco en pantalla
-  const fw = video.clientWidth;
-  const fh = video.clientHeight;
+  const w = video.videoWidth, h = video.videoHeight;
+  const fw = video.clientWidth, fh = video.clientHeight;
   if (!fw || !fh) return null;
 
-  // Con object-fit: cover, el vídeo se escala hasta cubrir el marco y se recorta
   const scale = Math.max(fw / w, fh / h);
-  const visW = fw / scale;              // ancho visible, en píxeles del fotograma
-  const visH = fh / scale;              // alto visible, en píxeles del fotograma
-  const visX = (w - visW) / 2;          // esquina de la parte visible
-  const visY = (h - visH) / 2;
+  const visW = fw / scale, visH = fh / scale;
+  const visX = (w - visW) / 2, visY = (h - visH) / 2;
 
-  // La guía, aplicada sobre la parte visible
   const sx = Math.round(visX + visW * SCAN_AREA.x);
   const sy = Math.round(visY + visH * SCAN_AREA.y);
   const sw = Math.round(visW * SCAN_AREA.w);
@@ -456,95 +377,66 @@ async function detectBarcode() {
   canvas.width = sw;
   canvas.height = sh;
   canvas.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-
   if (DEBUG) showDebugImage(canvas);
 
-  try {
-    const codes = await state.detector.detect(canvas);
-    console.log('codes:',codes);
-    return codes[0]?.rawValue?.trim() || null;
-  } catch (err) {
-    console.warn('BarcodeDetector:', err.name, err.message);
-    return null;
+  const t0 = performance.now();
+  for (const [name, source] of [['recorte', canvas], ['fotograma completo', video]]) {
+    try {
+      const codes = await state.detector.detect(source);
+      console.log(
+        `[${state.detectorKind}] ${name}: ${codes.length} resultado(s) en ` +
+        `${Math.round(performance.now() - t0)} ms`,
+        codes.map(c => `${c.format}: ${c.rawValue}`)
+      );
+      if (codes.length) return codes[0].rawValue.trim() || null;
+    } catch (err) {
+      console.error(`[${state.detectorKind}] ${name}:`, err);
+      state.lastDetectError = `${err.name}: ${err.message}`;
+    }
   }
+  return null;
 }
 
 // async function detectBarcode() {
-//   if (!state.codeReader || video.readyState < 2) {
-//     console.log("No pasa de detectBarcode: primera comprobacion");
-//     return null;
-//   }
-
-//   if (!video.videoWidth || !video.videoHeight) {
-//     console.log("no pasa de detectBarcode: segunda comprobacion");
+//   if (!state.detector || video.readyState < 2 || !video.videoWidth) {
+//     console.log('error state.detector:',state.detector,' video.readyState:', video.readyState);
 //     return null;
 //   }
 
 //   const w = video.videoWidth;
 //   const h = video.videoHeight;
 
-//   console.log("w, h:", w, h);
-//   // Zona de la guía de escaneo (.scan-guide): left/right 8%, top 30%, alto 40%
-//   const sx = Math.round(w * 0.08);
-//   const sw = Math.round(w * 0.84);
-//   const sy = Math.round(h * 0.39);
-//   const sh = Math.round(h * 0.20);
+//   // Tamaño del marco en pantalla
+//   const fw = video.clientWidth;
+//   const fh = video.clientHeight;
+//   if (!fw || !fh) return null;
+
+//   // Con object-fit: cover, el vídeo se escala hasta cubrir el marco y se recorta
+//   const scale = Math.max(fw / w, fh / h);
+//   const visW = fw / scale;              // ancho visible, en píxeles del fotograma
+//   const visH = fh / scale;              // alto visible, en píxeles del fotograma
+//   const visX = (w - visW) / 2;          // esquina de la parte visible
+//   const visY = (h - visH) / 2;
+
+//   // La guía, aplicada sobre la parte visible
+//   const sx = Math.round(visX + visW * SCAN_AREA.x);
+//   const sy = Math.round(visY + visH * SCAN_AREA.y);
+//   const sw = Math.round(visW * SCAN_AREA.w);
+//   const sh = Math.round(visH * SCAN_AREA.h);
 
 //   const canvas = document.createElement('canvas');
-//   if (!canvas) {
-//     return null;
-//   }
-//   console.log("Tenemos canvas");
 //   canvas.width = sw;
 //   canvas.height = sh;
-//   console.log("sx, sy, sw, sh:", sx, sy, sw, sh);
+//   canvas.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
 
-//   const context = canvas.getContext('2d', { willReadFrequently: true });
-//   if (!context) {
-//     return null;
-//   }
-//   console.log("Tenemos context");
-//   // Ahora sí: el contexto ya existe
-//   context.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+//   if (DEBUG) showDebugImage(canvas);
 
-//   // --- DEPURACIÓN: mostrar la imagen que se decodifica ---
-//   showDebugImage(canvas);
-
-//   // try {
-//   //   const luminance = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-//   //   const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminance));
-//   //   const result = state.codeReader.decode(bitmap);
-//   //   console.log('Formato detectado:', result.getBarcodeFormat());
-//   //   return result.getText().trim() || null;
-//   // } catch (err) {
-//   //   console.log('ZXing:', err.name, err.message);
-//   //   return null;
-//   // }
 //   try {
-//     const hints = new Map();
-//     hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-//       ZXing.BarcodeFormat.CODE_128,
-//       ZXing.BarcodeFormat.CODE_39,
-//       ZXing.BarcodeFormat.CODE_93,
-//       ZXing.BarcodeFormat.EAN_13,
-//       ZXing.BarcodeFormat.EAN_8,
-//       ZXing.BarcodeFormat.ITF,
-//       ZXing.BarcodeFormat.QR_CODE,
-//       ZXing.BarcodeFormat.DATA_MATRIX
-//     ]);
-//     hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-
-//     const luminance = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-//     const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminance));
-
-//     const reader = new ZXing.MultiFormatReader();
-//     reader.setHints(hints);
-
-//     const result = reader.decode(bitmap);
-//     console.log('Formato detectado:', result.getBarcodeFormat());
-//     return result.getText().trim() || null;
+//     const codes = await state.detector.detect(canvas);
+//     console.log('codes:',codes);
+//     return codes[0]?.rawValue?.trim() || null;
 //   } catch (err) {
-//     console.log('ZXing:', err.name, err.message);
+//     console.warn('BarcodeDetector:', err.name, err.message);
 //     return null;
 //   }
 // }
@@ -568,9 +460,16 @@ async function scanOnce() {
       flash('error');
 
       showToast(
-        'No se pudo leer el código Code 128.',
+        state.lastDetectError
+          ? `Error del detector (${state.detectorKind}): ${state.lastDetectError}`
+          : `Sin código detectado (${state.detectorKind}).`,
         true
       );
+
+      // showToast(
+      //   'No se pudo leer el código Code 128.',
+      //   true
+      // );
 
       return;
     }
