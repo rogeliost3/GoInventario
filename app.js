@@ -1,7 +1,7 @@
 'use strict';
-const DEBUG = true;
+// const DEBUG = true;
 const FORCE_POLYFILL = false;      // ponlo a true para probar el polyfill en el móvil
-const DEBUG_ALL_FORMATS = true;    // temporal: no restringir a code_128
+const DEBUG_ALL_FORMATS = false;    // temporal: no restringir a code_128
 
 const APP_VERSION = '1.0.3';
 const DB_NAME = 'InventarioEquiposDB';
@@ -348,20 +348,20 @@ function stopCamera() {
 }
 
 //Accesorio para depurar: Para ver la imagen que procesa detectBarcode()
-function showDebugImage(canvas) {
-  let img = document.getElementById('debugImage');
-  if (!img) {
-    img = document.createElement('img');
-    img.id = 'debugImage';
-    img.style.cssText =
-      'position:fixed;left:8px;bottom:8px;width:min(70vw,420px);' +
-      'z-index:200;border:3px solid #f59e0b;background:#000;' +
-      'image-rendering:pixelated;';
-    img.addEventListener('click', () => img.remove());
-    document.body.appendChild(img);
-  }
-  img.src = canvas.toDataURL('image/png');
-}
+// function showDebugImage(canvas) {
+//   let img = document.getElementById('debugImage');
+//   if (!img) {
+//     img = document.createElement('img');
+//     img.id = 'debugImage';
+//     img.style.cssText =
+//       'position:fixed;left:8px;bottom:8px;width:min(70vw,420px);' +
+//       'z-index:200;border:3px solid #f59e0b;background:#000;' +
+//       'image-rendering:pixelated;';
+//     img.addEventListener('click', () => img.remove());
+//     document.body.appendChild(img);
+//   }
+//   img.src = canvas.toDataURL('image/png');
+// }
 
 async function detectBarcode() {
   state.lastDetectError = null;
@@ -384,7 +384,7 @@ async function detectBarcode() {
   canvas.width = sw;
   canvas.height = sh;
   canvas.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-  if (DEBUG) showDebugImage(canvas);
+  // if (DEBUG) showDebugImage(canvas);
 
   const t0 = performance.now();
   for (const [name, source] of [['recorte', canvas], ['fotograma completo', video]]) {
