@@ -298,11 +298,6 @@ async function openCameraStream() {
   throw lastError;
 }
 
-function fitCameraFrame() {
-  if (!video.videoWidth || !video.videoHeight) return;
-  $('cameraFrame').style.setProperty('--ar', (video.videoWidth / video.videoHeight).toFixed(4));
-}
-
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('El navegador no permite acceder a la cámara en este contexto.');
@@ -325,7 +320,6 @@ async function startCamera() {
 
   video.srcObject = state.stream;
   await video.play();
-  fitCameraFrame();
 
   $('cameraMessage').textContent = 'Code 128 listo';
 }
@@ -440,11 +434,23 @@ async function detectBarcode() {
   const w = video.videoWidth;
   const h = video.videoHeight;
 
-  // Zona central, con margen respecto a la guía visual
-  const sx = Math.round(w * SCAN_AREA.x);
-  const sy = Math.round(h * SCAN_AREA.y);
-  const sw = Math.round(w * SCAN_AREA.w);
-  const sh = Math.round(h * SCAN_AREA.h);
+  // Tamaño del marco en pantalla
+  const fw = video.clientWidth;
+  const fh = video.clientHeight;
+  if (!fw || !fh) return null;
+
+  // Con object-fit: cover, el vídeo se escala hasta cubrir el marco y se recorta
+  const scale = Math.max(fw / w, fh / h);
+  const visW = fw / scale;              // ancho visible, en píxeles del fotograma
+  const visH = fh / scale;              // alto visible, en píxeles del fotograma
+  const visX = (w - visW) / 2;          // esquina de la parte visible
+  const visY = (h - visH) / 2;
+
+  // La guía, aplicada sobre la parte visible
+  const sx = Math.round(visX + visW * SCAN_AREA.x);
+  const sy = Math.round(visY + visH * SCAN_AREA.y);
+  const sw = Math.round(visW * SCAN_AREA.w);
+  const sh = Math.round(visH * SCAN_AREA.h);
 
   const canvas = document.createElement('canvas');
   canvas.width = sw;
@@ -705,9 +711,6 @@ function ensureLibrariesLoaded() {
 //   }
 // }
 
-video.addEventListener('loadedmetadata', fitCameraFrame);
-video.addEventListener('resize', fitCameraFrame);
-
 //Boton que controla el inicio y el cierre de las sesiones
 $('cameraSession').addEventListener('click', async () => {
   if (state.sessionActive) endSession();
@@ -725,10 +728,6 @@ window.addEventListener('beforeunload', () => stopCamera());
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(console.error));
 }
-
-
-video.addEventListener('loadedmetadata', fitCameraFrame);
-video.addEventListener('resize', fitCameraFrame);  // se dispara si cambia la orientación
 
 (async function init() {
   try {
