@@ -4,7 +4,6 @@ const APP_VERSION = '1.0.1';
 const DB_NAME = 'InventarioEquiposDB';
 const DB_VERSION = 1;
 const STORE = 'config';
-// const XLSX_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
 const XLSX_URL = './lib/xlsx.full.min.js';
 
 const state = {
@@ -198,7 +197,7 @@ function renderRows() {
 
 function playTone(kind) {
   try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const Ctx = window.AudioContext || window.AudioContext;
     if (!Ctx) return;
     state.audioCtx ||= new Ctx();
     if (state.audioCtx.state === 'suspended') state.audioCtx.resume();
@@ -228,130 +227,149 @@ function flash(kind) {
 }
 
 async function startCamera() {
+  console.log("Iniciando camara: v1.0.1");
   if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error(
-      'El navegador no permite acceder a la cámara en este contexto.'
-    );
-  }
-
-  if (!window.ZXingBrowser) {
-    throw new Error(
-      'No se ha cargado zxing-browser.min.js.'
-    );
+    throw new Error('El navegador no permite acceder a la cámara en este contexto.');
   }
 
   if (!window.ZXing) {
-    throw new Error(
-      'No se ha cargado zxing-library.min.js.'
-    );
+    throw new Error('No se ha cargado zxing-library.min.js.');
   }
 
-  // Crear lector ZXing.
-  // En la versión de zxing-browser que tienes,
-  // el segundo parámetro es timeBetweenScansMillis.
+  // Lector ZXing restringido a Code 128.
   const hints = new Map();
-  hints.set(
-    ZXing.DecodeHintType.POSSIBLE_FORMATS,
-    [ZXing.BarcodeFormat.CODE_128]
-  );
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.CODE_128]);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
 
-  state.codeReader =
-    new ZXingBrowser.BrowserMultiFormatReader(hints, 500);
+  const reader = new ZXing.MultiFormatReader();
+  reader.setHints(hints);
+  state.codeReader = reader;
 
-  // Restringir el lector exclusivamente a Code 128.
-  //
-  // Esta propiedad existe específicamente en
-  // BrowserMultiFormatReader de tu zxing-browser.min.js.
-  // state.codeReader.possibleFormats = [
-  //   ZXingBrowser.BarcodeFormat.CODE_128
-  // ];
-
-  // Obtener cámara trasera.
+  // Cámara trasera del móvil, sin deviceId.
   state.stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: {
-      deviceId: {
-        exact: "84807f8144c1d9ad6dd6633428ed9c9e5f5e6669467b196cea5f357003060bb1"
-      },
       facingMode: { ideal: 'environment' },
-      width: { exact: 1920 },
-      height: { exact: 1080 }
+      width: { ideal: 1920 },
+      height: { ideal: 1080 }
     }
   });
 
   const track = state.stream.getVideoTracks()[0];
-  console.log(track.getSettings());
-  const caps = track.getCapabilities();
-  console.log(caps);
 
-  if (caps.focusMode?.includes('continuous')) {
-    await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+  // Enfoque continuo si la cámara lo soporta (no debe romper el arranque).
+  try {
+    const caps = track.getCapabilities?.() ?? {};
+    if (caps.focusMode?.includes('continuous')) {
+      await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    }
+  } catch (err) {
+    console.warn('No se pudo aplicar el enfoque continuo:', err);
   }
 
-  // Mostrar la cámara en el elemento <video>.
   video.srcObject = state.stream;
-
   await video.play();
 
   $('cameraMessage').textContent = 'Code 128 listo';
 }
 
+// function stopCamera() {
+//   if (state.codeReader) {
+//     try {
+//       state.codeReader.reset();
+//     } catch (_) { }
+//   }
+
+//   if (state.stream) {
+//     state.stream.getTracks().forEach(track => track.stop());
+//   }
+
+//   state.stream = null;
+//   video.srcObject = null;
+//   state.codeReader = null;
+
+//   state.scanning = false;
+
+//   $('scanButton').disabled = false;
+// }
+
 function stopCamera() {
-  if (state.codeReader) {
-    try {
-      state.codeReader.reset();
-    } catch (_) { }
-  }
-
-  if (state.stream) {
-    state.stream.getTracks().forEach(track => track.stop());
-  }
-
+  state.stream?.getTracks().forEach(track => track.stop());
   state.stream = null;
   video.srcObject = null;
   state.codeReader = null;
-
   state.scanning = false;
-
   $('scanButton').disabled = false;
 }
 
+//Accesorio para depurar: Para ver la imagen que procesa detectBarcode()
+function showDebugImage(canvas) {
+  let img = document.getElementById('debugImage');
+  if (!img) {
+    img = document.createElement('img');
+    img.id = 'debugImage';
+    img.style.cssText =
+      'position:fixed;left:8px;bottom:8px;width:min(70vw,420px);' +
+      'z-index:200;border:3px solid #f59e0b;background:#000;' +
+      'image-rendering:pixelated;';
+    img.addEventListener('click', () => img.remove());
+    document.body.appendChild(img);
+  }
+  img.src = canvas.toDataURL('image/png');
+}
+
+
 async function detectBarcode() {
   if (!state.codeReader || video.readyState < 2) {
+    console.log("No pasa de detectBarcode: primera comprobacion");
     return null;
   }
 
   if (!video.videoWidth || !video.videoHeight) {
+    console.log("no pasa de detectBarcode: segunda comprobacion");
     return null;
   }
 
   const w = video.videoWidth;
   const h = video.videoHeight;
 
-  // Zona de la guía de escaneo (.scan-guide): left/right 8%, top 39%, alto 22%
+  console.log("w, h:", w, h);
+  // Zona de la guía de escaneo (.scan-guide): left/right 8%, top 30%, alto 40%
   const sx = Math.round(w * 0.08);
   const sw = Math.round(w * 0.84);
-  const sy = Math.round(h * 0.30);
-  const sh = Math.round(h * 0.40);
+  const sy = Math.round(h * 0.39);
+  const sh = Math.round(h * 0.20);
 
   const canvas = document.createElement('canvas');
+  if (!canvas) {
+    return null;
+  }
+  console.log("Tenemos canvas");
   canvas.width = sw;
   canvas.height = sh;
+  console.log("sx, sy, sw, sh:", sx, sy, sw, sh);
 
   const context = canvas.getContext('2d', { willReadFrequently: true });
   if (!context) {
     return null;
   }
-
+  console.log("Tenemos context");
   // Ahora sí: el contexto ya existe
   context.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
 
-  //TEMP:
-  canvas.style.cssText = 'position:fixed;top:60px;left:0;width:100%;z-index:999;border:3px solid red;background:#000';
-  document.body.appendChild(canvas);
-  setTimeout(() => canvas.remove(), 3000);
-  //TEMP
+  // --- DEPURACIÓN: mostrar la imagen que se decodifica ---
+  showDebugImage(canvas);
 
+  // try {
+  //   const luminance = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+  //   const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminance));
+  //   const result = state.codeReader.decode(bitmap);
+  //   console.log('Formato detectado:', result.getBarcodeFormat());
+  //   return result.getText().trim() || null;
+  // } catch (err) {
+  //   console.log('ZXing:', err.name, err.message);
+  //   return null;
+  // }
   try {
     const hints = new Map();
     hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
