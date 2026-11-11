@@ -47,12 +47,14 @@ const folderDialog = $('folderDialog');
 async function createDetector() {
   const options = DEBUG_ALL_FORMATS ? {} : { formats: ['code_128'] };
 
+  // 1) Detector nativo (Chrome en Android)
   if (!FORCE_POLYFILL && 'BarcodeDetector' in window) {
     try {
       const formats = await BarcodeDetector.getSupportedFormats();
       console.log('Formatos nativos:', formats);
+
       if (formats.includes('code_128')) {
-        state.detectorKind = 'nativo';
+        state.detectorKind = 'nativo';          // <- antes del return de esta rama
         return new BarcodeDetector(options);
       }
     } catch (err) {
@@ -60,22 +62,26 @@ async function createDetector() {
     }
   }
 
-  // 2) Polyfill con el .wasm local
+  // 2) Polyfill (zxing-wasm) con el .wasm local
   const api = window.BarcodeDetectionAPI;
-  if (!api) throw new Error('No se ha cargado ./lib/barcode-detector.iife.js');
+  if (!api) {
+    throw new Error('No se ha cargado ./lib/barcode-detector.iife.min.js');
+  }
 
   const overrides = {
     locateFile: (path, prefix) => path.endsWith('.wasm') ? WASM_URL : prefix + path
   };
 
   if (api.setZXingModuleOverrides) {
-    api.setZXingModuleOverrides(overrides);
+    api.setZXingModuleOverrides(overrides);                       // barcode-detector 2.x
   } else if (api.prepareZXingModule) {
-    api.prepareZXingModule({ overrides, fireImmediately: false });
+    api.prepareZXingModule({ overrides, fireImmediately: false }); // barcode-detector 3.x
   } else {
     console.warn('Esta versión no permite cambiar la ruta del .wasm; se descargará del CDN.');
   }
 
+  state.detectorKind = 'polyfill';              // <- antes del return final
+  console.log('BarcodeDetector polyfill (zxing-wasm)');
   return new api.BarcodeDetector(options);
 }
 
@@ -336,6 +342,7 @@ function stopCamera() {
   state.stream = null;
   video.srcObject = null;
   state.detector = null;
+  state.detectorKind='';
   state.scanning = false;
   $('scanButton').disabled = false;
 }
