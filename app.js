@@ -1,7 +1,7 @@
 'use strict';
 // const DEBUG = true;
 const FORCE_POLYFILL = false;      // ponlo a true para probar el polyfill en el móvil
-const DEBUG_ALL_FORMATS = false;    // temporal: no restringir a code_128
+const DEBUG_ALL_FORMATS = true;    // temporal: no restringir a code_128
 
 const APP_VERSION = '1.0.3';
 const DB_NAME = 'InventarioEquiposDB';
@@ -404,50 +404,6 @@ async function detectBarcode() {
   return null;
 }
 
-// async function detectBarcode() {
-//   if (!state.detector || video.readyState < 2 || !video.videoWidth) {
-//     console.log('error state.detector:',state.detector,' video.readyState:', video.readyState);
-//     return null;
-//   }
-
-//   const w = video.videoWidth;
-//   const h = video.videoHeight;
-
-//   // Tamaño del marco en pantalla
-//   const fw = video.clientWidth;
-//   const fh = video.clientHeight;
-//   if (!fw || !fh) return null;
-
-//   // Con object-fit: cover, el vídeo se escala hasta cubrir el marco y se recorta
-//   const scale = Math.max(fw / w, fh / h);
-//   const visW = fw / scale;              // ancho visible, en píxeles del fotograma
-//   const visH = fh / scale;              // alto visible, en píxeles del fotograma
-//   const visX = (w - visW) / 2;          // esquina de la parte visible
-//   const visY = (h - visH) / 2;
-
-//   // La guía, aplicada sobre la parte visible
-//   const sx = Math.round(visX + visW * SCAN_AREA.x);
-//   const sy = Math.round(visY + visH * SCAN_AREA.y);
-//   const sw = Math.round(visW * SCAN_AREA.w);
-//   const sh = Math.round(visH * SCAN_AREA.h);
-
-//   const canvas = document.createElement('canvas');
-//   canvas.width = sw;
-//   canvas.height = sh;
-//   canvas.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-
-//   if (DEBUG) showDebugImage(canvas);
-
-//   try {
-//     const codes = await state.detector.detect(canvas);
-//     console.log('codes:',codes);
-//     return codes[0]?.rawValue?.trim() || null;
-//   } catch (err) {
-//     console.warn('BarcodeDetector:', err.name, err.message);
-//     return null;
-//   }
-// }
-
 async function scanOnce() {
   if (!state.sessionActive || state.busy) {
     return;
@@ -472,11 +428,6 @@ async function scanOnce() {
           : `Sin código detectado (${state.detectorKind}).`,
         true
       );
-
-      // showToast(
-      //   'No se pudo leer el código Code 128.',
-      //   true
-      // );
 
       return;
     }
@@ -594,28 +545,6 @@ function ensureLibrariesLoaded() {
     throw new Error('No hay BarcodeDetector. Comprueba ./lib/barcode-detector.iife.js');
   }
 }
-
-// function ensureLibrariesLoaded() {
-//   if (!window.XLSX) {
-//     throw new Error(
-//       'No se ha cargado XLSX. Comprueba ./lib/xlsx.full.min.js'
-//     );
-//   }
-
-//   if (!window.ZXing) {
-//     throw new Error(
-//       'No se ha cargado ZXing Library. ' +
-//       'Comprueba ./lib/zxing-library.min.js'
-//     );
-//   }
-
-//   if (!window.ZXingBrowser) {
-//     throw new Error(
-//       'No se ha cargado ZXing Browser. ' +
-//       'Comprueba ./lib/zxing-browser.min.js'
-//     );
-//   }
-// }
 
 //Boton que controla el inicio y el cierre de las sesiones
 $('cameraSession').addEventListener('click', async () => {
