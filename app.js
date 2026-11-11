@@ -8,6 +8,9 @@ const STORE = 'config';
 const XLSX_URL = './lib/xlsx.full.min.js';
 const WASM_URL = './lib/zxing_reader.wasm';
 
+// Zona de lectura, como fracción del fotograma
+const SCAN_AREA = { x: 0.05, y: 0.30, w: 0.90, h: 0.40 };
+
 const state = {
   dispositivo: 'PC',
   departamento: '',
@@ -295,6 +298,11 @@ async function openCameraStream() {
   throw lastError;
 }
 
+function fitCameraFrame() {
+  if (!video.videoWidth || !video.videoHeight) return;
+  $('cameraFrame').style.setProperty('--ar', (video.videoWidth / video.videoHeight).toFixed(4));
+}
+
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('El navegador no permite acceder a la cámara en este contexto.');
@@ -317,6 +325,7 @@ async function startCamera() {
 
   video.srcObject = state.stream;
   await video.play();
+  fitCameraFrame();
 
   $('cameraMessage').textContent = 'Code 128 listo';
 }
@@ -432,8 +441,10 @@ async function detectBarcode() {
   const h = video.videoHeight;
 
   // Zona central, con margen respecto a la guía visual
-  const sx = Math.round(w * 0.05), sw = Math.round(w * 0.90);
-  const sy = Math.round(h * 0.25), sh = Math.round(h * 0.50);
+  const sx = Math.round(w * SCAN_AREA.x);
+  const sy = Math.round(h * SCAN_AREA.y);
+  const sw = Math.round(w * SCAN_AREA.w);
+  const sh = Math.round(h * SCAN_AREA.h);
 
   const canvas = document.createElement('canvas');
   canvas.width = sw;
@@ -694,6 +705,9 @@ function ensureLibrariesLoaded() {
 //   }
 // }
 
+video.addEventListener('loadedmetadata', fitCameraFrame);
+video.addEventListener('resize', fitCameraFrame);
+
 //Boton que controla el inicio y el cierre de las sesiones
 $('cameraSession').addEventListener('click', async () => {
   if (state.sessionActive) endSession();
@@ -711,6 +725,10 @@ window.addEventListener('beforeunload', () => stopCamera());
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(console.error));
 }
+
+
+video.addEventListener('loadedmetadata', fitCameraFrame);
+video.addEventListener('resize', fitCameraFrame);  // se dispara si cambia la orientación
 
 (async function init() {
   try {

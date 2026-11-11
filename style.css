@@ -31,9 +31,19 @@ button { -webkit-tap-highlight-color:transparent; }
 .status-dot { width:8px; height:8px; border-radius:50%; background:var(--ok); margin-left:auto; }
 .hidden { display:none !important; }
 .camera-area { padding:0 8px 8px; }
-.camera-frame { position:relative; width:100%; aspect-ratio:16/10; background:#000; overflow:hidden; border-radius:10px; border:1px solid var(--border); }
+.camera-frame {
+  --ar: 1.6; /* se actualiza desde JS con la proporción real del vídeo */
+  position: relative;
+  aspect-ratio: var(--ar);
+  width: min(100%, calc(60dvh * var(--ar)));  /* nunca más alto que el 60% de la pantalla */
+  margin: 0 auto;
+  background: #000;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
 video { width:100%; height:100%; object-fit:contain; display:block; }
-.scan-guide { position:absolute; left:8%; right:8%; top:39%; height:22%; border:2px solid rgba(255,255,255,.7); border-radius:7px; box-shadow:0 0 0 999px rgba(0,0,0,.18); pointer-events:none; }
+.scan-guide { position:absolute; left:5%; right:5%; top:30%; height:40%; border:2px solid rgba(255,255,255,.7); border-radius:7px; box-shadow:0 0 0 999px rgba(0,0,0,.18); pointer-events:none; }
 .scan-flash { position:absolute; inset:0; background:rgba(220,38,38,.65); opacity:0; pointer-events:none; }
 .scan-flash.error { animation:errorFlash .45s ease-out; }
 .scan-flash.success { background:rgba(22,163,74,.45); animation:successFlash .28s ease-out; }
@@ -66,4 +76,4 @@ dialog::backdrop { background:rgba(0,0,0,.68); }
 .primary { background:var(--accent); color:#fff; }
 .secondary { background:#374151; color:#fff; }
 .full { width:100%; margin-top:8px; }
-@media (min-width:700px) { .device { min-height:58px; } .camera-frame { aspect-ratio:16/9; } table { font-size:13px; } }
+/* @media (min-width:700px) { .device { min-height:58px; } .camera-frame { aspect-ratio:16/9; } table { font-size:13px; } } */
