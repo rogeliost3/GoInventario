@@ -3,7 +3,7 @@ const DEBUG = true;
 const FORCE_POLYFILL = false;      // ponlo a true para probar el polyfill en el móvil
 const DEBUG_ALL_FORMATS = true;    // temporal: no restringir a code_128
 
-const APP_VERSION = '1.0.2';
+const APP_VERSION = '1.0.3';
 const DB_NAME = 'InventarioEquiposDB';
 const DB_VERSION = 1;
 const STORE = 'config';
