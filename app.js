@@ -1,7 +1,7 @@
 'use strict';
-DEBUG = true;
+const DEBUG = true;
 
-const APP_VERSION = '1.0.1';
+const APP_VERSION = '1.0.2';
 const DB_NAME = 'InventarioEquiposDB';
 const DB_VERSION = 1;
 const STORE = 'config';
@@ -260,10 +260,46 @@ function flash(kind) {
   el.classList.add(kind);
 }
 
+async function openCameraStream() {
+  const attempts = [
+    { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+    { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    { facingMode: { ideal: 'environment' } },
+    true
+  ];
+
+  let lastError;
+  for (const video of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: false, video });
+    } catch (err) {
+      lastError = err;
+
+      if (err.name === 'NotReadableError') {
+        throw new Error(
+          'La cámara está en uso por otra aplicación o pestaña, o el sistema la bloquea. ' +
+          'Ciérralas y vuelve a intentarlo.'
+        );
+      }
+      if (err.name === 'NotAllowedError') {
+        throw new Error('Permiso de cámara denegado. Actívalo en los ajustes del sitio.');
+      }
+      if (err.name === 'NotFoundError') {
+        throw new Error('No se ha encontrado ninguna cámara.');
+      }
+      if (err.name !== 'OverconstrainedError') throw err;
+
+      console.warn('Restricciones no válidas, reintentando:', err.constraint);
+    }
+  }
+  throw lastError;
+}
+
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('El navegador no permite acceder a la cámara en este contexto.');
-  }
+  } else
+    console.log('tenemos navigator');
 
   state.detector = await createDetector();
 
@@ -387,7 +423,10 @@ function showDebugImage(canvas) {
 }
 
 async function detectBarcode() {
-  if (!state.detector || video.readyState < 2 || !video.videoWidth) return null;
+  if (!state.detector || video.readyState < 2 || !video.videoWidth) {
+    console.log('error state.detector:',state.detector,' video.readyState:', video.readyState);
+    return null;
+  }
 
   const w = video.videoWidth;
   const h = video.videoHeight;
@@ -405,6 +444,7 @@ async function detectBarcode() {
 
   try {
     const codes = await state.detector.detect(canvas);
+    console.log('codes:',codes);
     return codes[0]?.rawValue?.trim() || null;
   } catch (err) {
     console.warn('BarcodeDetector:', err.name, err.message);
