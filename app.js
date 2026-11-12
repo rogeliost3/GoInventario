@@ -607,8 +607,20 @@ window.addEventListener('pagehide', () => stopCamera());
 window.addEventListener('beforeunload', () => stopCamera());
 
 //Registro del Service Worker
+// if ('serviceWorker' in navigator) {
+//   window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(console.error));
+// }
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(console.error));
+  window.addEventListener('load', () =>
+    navigator.serviceWorker.register('service-worker.js').catch(console.error));
+
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloading) return;
+    reloading = true;
+    // Aviso: recargar durante una sesión de escaneo la interrumpe
+    if (!state.sessionActive) location.reload();
+  });
 }
 
 // Listener del boton undo
