@@ -1,4 +1,4 @@
-const CACHE = 'inventario-v2';
+const CACHE = 'inventario-v3';
 const APP_ASSETS = [
   './', 
   './index.html', 

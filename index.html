@@ -13,7 +13,7 @@
 <body>
   <main class="app">
     <header class="topbar">
-      <p>GoInventario v1.0.3  -  Rogelio 2026</p>
+      <p>GoInventario v1.0.4  -  Rogelio 2026</p>
       <div class="device-buttons" role="group" aria-label="Tipo de dispositivo">
         <button class="device active" data-device="PC">PC</button>
         <button class="device" data-device="PTT">PTT</button>
@@ -50,11 +50,13 @@
       <div class="section-title">
         <h2>Lecturas realizadas</h2>
         <span id="countBadge">0</span>
+        <button id="undoButton" class="undo-button" type="button" disabled>↩</button>
       </div>
       <div class="table-wrap">
         <table id="readingTable">
           <thead>
             <tr>
+              <th></th>
               <th>Departamento</th>
               <th>Tipo</th>
               <th>Etiqueta</th>

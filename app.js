@@ -3,7 +3,7 @@
 const FORCE_POLYFILL = false;      // ponlo a true para probar el polyfill en el móvil
 const DEBUG_ALL_FORMATS = true;    // temporal: no restringir a code_128
 
-const APP_VERSION = '1.0.3';
+const APP_VERSION = '1.0.4';
 const DB_NAME = 'InventarioEquiposDB';
 const DB_VERSION = 1;
 const STORE = 'config';
@@ -43,6 +43,7 @@ const toast = $('toast');
 const departmentDialog = $('departmentDialog');
 const departmentInput = $('departmentInput');
 const folderDialog = $('folderDialog');
+const undoButton = $('undoButton');
 
 async function createDetector() {
   const options = DEBUG_ALL_FORMATS ? {} : { formats: ['code_128'] };
@@ -231,19 +232,38 @@ function rowsToWorkbook(rows) {
 
 function renderRows() {
   readingBody.innerHTML = '';
-  const rows = state.rows.slice().reverse();
-  rows.forEach(r => {
+
+  // Más recientes arriba; el número de orden es la posición real (1 = primera lectura)
+  for (let i = state.rows.length - 1; i >= 0; i--) {
+    const r = state.rows[i];
     const tr = document.createElement('tr');
-    [r.departamento, r.tipo, r.etiqueta, r.usuario].forEach(value => {
+    [i + 1, r.departamento, r.tipo, r.etiqueta, r.usuario].forEach(value => {
       const td = document.createElement('td');
       td.textContent = value;
       tr.appendChild(td);
     });
     readingBody.appendChild(tr);
-  });
+  }
+
   countBadge.textContent = state.rows.length;
   emptyMessage.classList.toggle('hidden', state.rows.length > 0);
+  undoButton.disabled = state.rows.length === 0;
 }
+// function renderRows() {
+//   readingBody.innerHTML = '';
+//   const rows = state.rows.slice().reverse();
+//   rows.forEach(r => {
+//     const tr = document.createElement('tr');
+//     [r.departamento, r.tipo, r.etiqueta, r.usuario].forEach(value => {
+//       const td = document.createElement('td');
+//       td.textContent = value;
+//       tr.appendChild(td);
+//     });
+//     readingBody.appendChild(tr);
+//   });
+//   countBadge.textContent = state.rows.length;
+//   emptyMessage.classList.toggle('hidden', state.rows.length > 0);
+// }
 
 function playTone(kind) {
   try {
@@ -485,6 +505,33 @@ async function scanOnce() {
   }
 }
 
+//Función para deshacer, al pulsar undo
+async function undoLastReading() {
+  if (state.busy || state.rows.length === 0) return;
+
+  const last = state.rows[state.rows.length - 1];
+  // Quita esta línea si no quieres confirmación
+  if (!confirm(`¿Eliminar la última lectura?\n\n${last.etiqueta}`)) return;
+
+  state.busy = true;
+  undoButton.disabled = true;
+
+  const removed = state.rows.pop();
+
+  try {
+    await writeWorkbook(rowsToWorkbook(state.rows));              // reescribe el Excel sin esa fila
+    await saveConfig('lastRows', state.rows).catch(() => {});     // copia de seguridad
+    showToast(`Lectura eliminada: ${removed.etiqueta}`);
+  } catch (err) {
+    state.rows.push(removed);                                     // si falla el guardado, se restaura
+    playTone('error');
+    showToast(`No se pudo deshacer: ${err.message}`, true);
+  } finally {
+    state.busy = false;
+    renderRows();                                                 // actualiza tabla, contador y botón
+  }
+}
+
 async function startSession() {
   const result = await new Promise(resolve => {
     departmentInput.value = '';
@@ -563,6 +610,9 @@ window.addEventListener('beforeunload', () => stopCamera());
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(console.error));
 }
+
+// Listener del boton undo
+$('undoButton').addEventListener('click', undoLastReading);
 
 (async function init() {
   try {
