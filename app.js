@@ -1,14 +1,16 @@
 'use strict';
 // const DEBUG = true;
+
 const FORCE_POLYFILL = false;      // ponlo a true para probar el polyfill en el móvil
 const DEBUG_ALL_FORMATS = true;    // temporal: no restringir a code_128
 
-const APP_VERSION = '1.0.4';
+const APP_VERSION = '1.0.5';
 const DB_NAME = 'InventarioEquiposDB';
 const DB_VERSION = 1;
 const STORE = 'config';
 const XLSX_URL = './lib/xlsx.full.min.js';
 const WASM_URL = './lib/zxing_reader.wasm';
+const HEADERS = ['DEPARTAMENTO', 'TIPO', 'ETIQUETA ESCANEADA', 'USUARIO', 'NOTAS'];
 
 // Zona de lectura, como fracción del fotograma
 const SCAN_AREA = { x: 0.05, y: 0.30, w: 0.90, h: 0.40 };
@@ -26,8 +28,23 @@ const state = {
   lastDetectError: null,
   stream: null,
   audioCtx: null,
-  busy: false
+  busy: false,
+  lastFormat: ''
 };
+
+const BARCODE_TYPES = [
+  { format: 'code_128',    label: 'Code 128',     desc: 'Etiquetas de inventario y logística', kind: '1d' },
+  { format: 'code_39',     label: 'Code 39',      desc: 'Industria y material técnico',        kind: '1d' },
+  { format: 'ean_13',      label: 'EAN-13',       desc: 'Productos de tienda (13 dígitos)',    kind: '1d' },
+  { format: 'itf',         label: 'ITF (2 de 5)', desc: 'Cajas y embalajes',                   kind: '1d' },
+  { format: 'qr_code',     label: 'QR',           desc: 'Cuadrado con 3 esquinas marcadas',    kind: '2d' },
+  { format: 'data_matrix', label: 'Data Matrix',  desc: 'Cuadrado con borde en L',             kind: '2d' }
+];
+
+//Transforma el codigo a una representacion apta para mostrar al usuario de la app
+function formatLabel(format) {
+  return BARCODE_TYPES.find(t => t.format === format)?.label || format || 'Formato desconocido';
+}
 
 const $ = id => document.getElementById(id);
 const deviceButtons = [...document.querySelectorAll('.device')];
@@ -44,6 +61,7 @@ const departmentDialog = $('departmentDialog');
 const departmentInput = $('departmentInput');
 const folderDialog = $('folderDialog');
 const undoButton = $('undoButton');
+const notesInput = $('notesInput');
 
 async function createDetector() {
   const options = DEBUG_ALL_FORMATS ? {} : { formats: ['code_128'] };
@@ -191,7 +209,7 @@ async function getTodayWorkbook() {
 
   if (file.size === 0) {
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([['DEPARTAMENTO', 'TIPO', 'ETIQUETA ESCANEADA', 'USUARIO']]);
+    const ws = XLSX.utils.aoa_to_sheet([HEADERS]);
     XLSX.utils.book_append_sheet(wb, ws, 'INVENTARIO');
     await writeWorkbook(wb);
     return wb;
@@ -217,14 +235,15 @@ function workbookToRows(wb) {
     departamento: String(r[0] ?? ''),
     tipo: String(r[1] ?? ''),
     etiqueta: String(r[2] ?? ''),
-    usuario: String(r[3] ?? '')
+    usuario: String(r[3] ?? ''),
+    notas: String(r[4] ?? '')
   }));
 }
 
 function rowsToWorkbook(rows) {
-  const aoa = [['DEPARTAMENTO', 'TIPO', 'ETIQUETA ESCANEADA', 'USUARIO'], ...rows.map(r => [r.departamento, r.tipo, r.etiqueta, r.usuario])];
+  const aoa = [HEADERS, ...rows.map(r => [r.departamento, r.tipo, r.etiqueta, r.usuario, r.notas ?? ''])];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 24 }, { wch: 10 }, { wch: 28 }, { wch: 30 }];
+  ws['!cols'] = [{ wch: 24 }, { wch: 10 }, { wch: 28 }, { wch: 30 }, { wch: 40 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'INVENTARIO');
   return wb;
@@ -237,7 +256,7 @@ function renderRows() {
   for (let i = state.rows.length - 1; i >= 0; i--) {
     const r = state.rows[i];
     const tr = document.createElement('tr');
-    [i + 1, r.departamento, r.tipo, r.etiqueta, r.usuario].forEach(value => {
+    [i + 1, r.departamento, r.tipo, r.etiqueta, r.usuario, r.notas].forEach(value => {
       const td = document.createElement('td');
       td.textContent = value;
       tr.appendChild(td);
@@ -249,21 +268,6 @@ function renderRows() {
   emptyMessage.classList.toggle('hidden', state.rows.length > 0);
   undoButton.disabled = state.rows.length === 0;
 }
-// function renderRows() {
-//   readingBody.innerHTML = '';
-//   const rows = state.rows.slice().reverse();
-//   rows.forEach(r => {
-//     const tr = document.createElement('tr');
-//     [r.departamento, r.tipo, r.etiqueta, r.usuario].forEach(value => {
-//       const td = document.createElement('td');
-//       td.textContent = value;
-//       tr.appendChild(td);
-//     });
-//     readingBody.appendChild(tr);
-//   });
-//   countBadge.textContent = state.rows.length;
-//   emptyMessage.classList.toggle('hidden', state.rows.length > 0);
-// }
 
 function playTone(kind) {
   try {
@@ -385,6 +389,7 @@ function stopCamera() {
 
 async function detectBarcode() {
   state.lastDetectError = null;
+  state.lastFormat = '';
   if (!state.detector || video.readyState < 2 || !video.videoWidth) return null;
 
   const w = video.videoWidth, h = video.videoHeight;
@@ -410,14 +415,17 @@ async function detectBarcode() {
   for (const [name, source] of [['recorte', canvas], ['fotograma completo', video]]) {
     try {
       const codes = await state.detector.detect(source);
-      console.log(
-        `[${state.detectorKind}] ${name}: ${codes.length} resultado(s) en ` +
-        `${Math.round(performance.now() - t0)} ms`,
-        codes.map(c => `${c.format}: ${c.rawValue}`)
-      );
-      if (codes.length) return codes[0].rawValue.trim() || null;
+      // console.log(
+      //   `[${state.detectorKind}] ${name}: ${codes.length} resultado(s) en ` +
+      //   `${Math.round(performance.now() - t0)} ms`,
+      //   codes.map(c => `${c.format}: ${c.rawValue}`)
+      // );
+      if (codes.length) {
+        state.lastFormat = codes[0].format;
+        return codes[0].rawValue.trim() || null;
+      }
     } catch (err) {
-      console.error(`[${state.detectorKind}] ${name}:`, err);
+      // console.error(`[${state.detectorKind}] ${name}:`, err);
       state.lastDetectError = `${err.name}: ${err.message}`;
     }
   }
@@ -456,7 +464,8 @@ async function scanOnce() {
       departamento: state.departamento,
       tipo: state.dispositivo,
       etiqueta: value,
-      usuario: userName.value.trim()
+      usuario: userName.value.trim(),
+      notas: notesInput.value.trim()
     };
 
     try {
@@ -479,7 +488,8 @@ async function scanOnce() {
       playTone('success');
       flash('success');
 
-      showToast(`Lectura correcta: ${value}`);
+      showToast(`Lectura correcta · ${formatLabel(state.lastFormat)}: ${value}`);
+      notesInput.value = '';
 
     } catch (err) {
       // Si falla el guardado, eliminar el registro
@@ -625,6 +635,10 @@ if ('serviceWorker' in navigator) {
 
 // Listener del boton undo
 $('undoButton').addEventListener('click', undoLastReading);
+
+// Cerrar el teclado al pulsar intro
+[userName, notesInput].forEach(input =>
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); }));
 
 (async function init() {
   try {

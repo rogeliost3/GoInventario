@@ -20,13 +20,17 @@
         <button class="device" data-device="MON">MON</button>
         <button class="device" data-device="IMP">IMP</button>
         <button class="device" data-device="MF">MF</button>
+        <button class="device" data-device="AIO">AIO</button>
+        <button class="device" data-device="SCN">SCN</button>
         <button id="cameraSession" class="camera-button" aria-label="Iniciar o cerrar sesión de escaneo" title="Iniciar/cerrar sesión">📷</button>
       </div>
     </header>
 
     <section class="user-row">
       <label for="userName">Usuario</label>
-      <input id="userName" type="text" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Nombre del usuario">
+      <input id="userName" type="text" autocomplete="off" autocapitalize="words" enterkeyhint="done" spellcheck="false" placeholder="Nombre del usuario">
+      <label for="notesInput">Notas</label>
+      <input id="notesInput" type="text" autocomplete="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done" placeholder="Notas">
     </section>
 
     <section id="sessionInfo" class="session-info hidden">
@@ -42,8 +46,8 @@
         <div class="scan-guide" aria-hidden="true"></div>
         <div id="scanFlash" class="scan-flash"></div>
         <div id="cameraMessage" class="camera-message">Apunta al código Code 128</div>
+        <button id="scanButton" class="scan-button" aria-label="Leer código de barras">●</button>
       </div>
-      <button id="scanButton" class="scan-button" aria-label="Leer código de barras">●</button>
     </section>
 
     <section class="reading-section">
@@ -57,10 +61,11 @@
           <thead>
             <tr>
               <th></th>
-              <th>Departamento</th>
+              <th>Dept</th>
               <th>Tipo</th>
               <th>Etiqueta</th>
               <th>Usuario</th>
+              <th>Notas</th>
             </tr>
           </thead>
           <tbody id="readingBody"></tbody>

@@ -16,17 +16,34 @@ body { min-height:100dvh; }
 button, input { font:inherit; }
 button { -webkit-tap-highlight-color:transparent; }
 .app { min-height:100dvh; max-width:900px; margin:auto; padding-bottom:20px; }
-.topbar { position:sticky; top:0; z-index:20; background:rgba(11,18,32,.96); padding:env(safe-area-inset-top) 6px 6px; backdrop-filter:blur(8px); }
-.device-buttons { display:grid; grid-template-columns:repeat(5,1fr) 1.2fr; gap:4px; }
-.device, .camera-button { border:0; min-height:52px; background:var(--panel2); color:var(--text); font-weight:800; font-size:clamp(15px,4vw,20px); border-radius:8px; }
+
+/* .topbar { position:sticky; top:0; z-index:20; background:rgba(11,18,32,.96); padding:env(safe-area-inset-top) 6px 6px; backdrop-filter:blur(8px); } */
+.topbar { position:sticky; top:0; z-index:20; background:var(--bg); padding:env(safe-area-inset-top) 6px 6px; border-bottom:1px solid var(--border); }
+.topbar > p { margin:4px 2px 6px; }
+
+/* .device-buttons { display:grid; grid-template-columns:repeat(5,1fr) 1.2fr; gap:4px; } */
+.device-buttons { display:grid; grid-template-columns:repeat(7,1fr) 1.3fr; gap:3px; }
+
+/* .device, .camera-button { border:0; min-height:52px; background:var(--panel2); color:var(--text); font-weight:800; font-size:clamp(15px,4vw,20px); border-radius:8px; } */
+.device, .camera-button { border:0; min-height:48px; padding:0; background:var(--panel2); color:var(--text); font-weight:800; font-size:clamp(12px,3.5vw,18px); border-radius:8px; }
+
 .device.active { background:var(--accent); box-shadow:inset 0 -3px rgba(255,255,255,.18); }
-.camera-button { background:#374151; font-size:26px; }
+
+/* .camera-button { background:#374151; font-size:26px; } */
+.camera-button { background:#374151; font-size:22px; }
+
 .camera-button.active { background:#b91c1c; }
-.user-row { padding:7px 8px; display:grid; grid-template-columns:auto 1fr; gap:8px; align-items:center; }
+
+/* .user-row { padding:7px 8px; display:grid; grid-template-columns:auto 1fr; gap:8px; align-items:center; } */
+.user-row { padding:6px 8px 0; display:grid; grid-template-columns:auto 1fr; gap:6px 8px; align-items:center; }
+
 .user-row label { color:var(--muted); font-size:13px; }
 .user-row input, #departmentInput { min-width:0; width:100%; border:1px solid var(--border); background:var(--panel); color:var(--text); border-radius:8px; padding:11px 12px; outline:none; }
-.user-row input:focus, #departmentInput:focus { border-color:var(--accent); }
-.session-info { margin:0 8px 8px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:8px 10px; display:flex; align-items:center; gap:7px; font-size:13px; }
+.user-row input { padding:6px 10px; }   /* ponla DESPUÉS de la regla ".user-row input, #departmentInput" */
+
+.scan-button { position:absolute; top:10px; right:10px; z-index:5; width:60px; height:60px; margin:0; border-radius:50%; border:5px solid #e5e7eb; background:var(--danger); color:#fff; font-size:0; box-shadow:0 2px 8px rgba(0,0,0,.5); }
+
+.session-info { margin:6px 8px 8px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:8px 10px; display:flex; align-items:center; gap:7px; font-size:13px; }
 .session-info span:first-child { color:var(--muted); }
 .status-dot { width:8px; height:8px; border-radius:50%; background:var(--ok); margin-left:auto; }
 .hidden { display:none !important; }
@@ -53,7 +70,10 @@ video {
 @keyframes errorFlash { 0%{opacity:0} 25%{opacity:1} 100%{opacity:0} }
 @keyframes successFlash { 0%{opacity:0} 30%{opacity:1} 100%{opacity:0} }
 .camera-message { position:absolute; bottom:8px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.65); padding:5px 9px; border-radius:99px; font-size:12px; white-space:nowrap; }
-.scan-button { display:block; margin:10px auto 4px; width:78px; height:78px; border-radius:50%; border:8px solid #e5e7eb; background:var(--danger); color:#fff; font-size:0; box-shadow:0 3px 10px rgba(0,0,0,.35); }
+
+/* .scan-button { display:block; margin:10px auto 4px; width:78px; height:78px; border-radius:50%; border:8px solid #e5e7eb; background:var(--danger); color:#fff; font-size:0; box-shadow:0 3px 10px rgba(0,0,0,.35); } */
+.scan-button { position:absolute; top:10px; right:10px; z-index:5; width:50px; height:50px; margin:0; border-radius:50%; border:5px solid #e5e7eb; background:var(--danger); color:#fff; font-size:0; box-shadow:0 2px 8px rgba(0,0,0,.5); }
+
 .scan-button:active { transform:scale(.94); }
 .scan-button:disabled { opacity:.45; }
 .reading-section { padding:0 8px; }
@@ -88,3 +108,4 @@ dialog::backdrop { background:rgba(0,0,0,.68); }
 
 #readingTable th:first-child,
 #readingTable td:first-child { width:1%; white-space:nowrap; text-align:right; color:var(--muted); }
+#readingTable td:last-child { min-width:110px; }
